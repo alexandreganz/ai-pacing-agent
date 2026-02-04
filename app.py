@@ -513,7 +513,7 @@ def main():
             st.markdown(f"- Variance Amount: ${variance_amount:,.2f}")
 
         st.markdown("**Recommendation:**")
-        st.info(selected_alert.recommendation)
+        st.info(selected_alert.recommendation.replace("\n", "  \n"))
 
 
 if __name__ == "__main__":
