@@ -235,7 +235,14 @@ def run_agent(platform, num_campaigns, seed, confidence_threshold, healthy_thres
             timestamp=datetime.utcnow(),
             metadata={
                 "target_spend": target.amount_usd,
-                "actual_spend": actual.amount_usd
+                "actual_spend": actual.amount_usd,
+                "metadata_match_score": confidence_scores["metadata_match_score"],
+                "name_similarity": confidence_scores["name_similarity"],
+                "data_freshness_score": confidence_scores["data_freshness_score"],
+                "tracker_name": target.campaign_name,
+                "api_name": actual.campaign_name,
+                "tracker_metadata": target.metadata,
+                "api_metadata": actual.metadata,
             }
         )
 
@@ -515,6 +522,55 @@ def main():
         st.markdown("**Recommendation:**")
         recommendation_text = selected_alert.recommendation.replace("$", "\\$").replace("\n", "  \n")
         st.info(recommendation_text)
+
+        # Confidence score breakdown for all campaigns
+        st.markdown("---")
+        st.markdown("### 📐 Confidence Score Breakdown")
+
+        meta = selected_alert.metadata
+        meta_score = meta.get("metadata_match_score", 0)
+        name_score = meta.get("name_similarity", 0)
+        fresh_score = meta.get("data_freshness_score", 0)
+
+        score_col1, score_col2, score_col3 = st.columns(3)
+        with score_col1:
+            st.metric("Metadata Match (50%)", f"{meta_score:.0%}")
+        with score_col2:
+            st.metric("Name Similarity (30%)", f"{name_score:.0%}")
+        with score_col3:
+            st.metric("Data Freshness (20%)", f"{fresh_score:.0%}")
+
+        # Show detailed diagnostics for escalated campaigns
+        if selected_alert.action_taken == "escalated_to_human":
+            st.warning("⚠️ This campaign was escalated to human review due to low confidence. Details below:")
+
+            tracker_name = meta.get("tracker_name", "N/A")
+            api_name = meta.get("api_name", "N/A")
+            tracker_meta = meta.get("tracker_metadata", {})
+            api_meta = meta.get("api_metadata", {})
+
+            st.markdown("**Name Comparison:**")
+            name_df = pd.DataFrame({
+                "Source": ["Platform API", "Internal Tracker"],
+                "Campaign Name": [api_name, tracker_name],
+            })
+            st.dataframe(name_df, use_container_width=True, hide_index=True)
+
+            st.markdown("**Metadata Comparison:**")
+            fields = ["market", "product", "start_date", "end_date"]
+            rows = []
+            for field in fields:
+                api_val = api_meta.get(field, "—")
+                tracker_val = tracker_meta.get(field, "—")
+                match = "✅" if str(api_val).lower() == str(tracker_val).lower() else "❌"
+                rows.append({
+                    "Field": field,
+                    "Platform API": api_val,
+                    "Internal Tracker": tracker_val,
+                    "Match": match,
+                })
+            meta_df = pd.DataFrame(rows)
+            st.dataframe(meta_df, use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":
