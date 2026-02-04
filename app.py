@@ -431,13 +431,17 @@ def main():
             st.plotly_chart(create_severity_chart(alerts), use_container_width=True)
 
         with col2:
-            autonomous = sum(1 for a in alerts if a.is_autonomous_action)
-            escalated = sum(1 for a in alerts if a.requires_human)
+            action_counts = {
+                "Logged Healthy": sum(1 for a in alerts if a.action_taken == "logged_healthy"),
+                "Warning Alert": sum(1 for a in alerts if a.action_taken == "warning_alert_sent"),
+                "Autonomous Halt": sum(1 for a in alerts if a.action_taken == "autonomous_halt_executed"),
+                "Human Escalation": sum(1 for a in alerts if a.action_taken == "escalated_to_human"),
+            }
 
             fig = go.Figure(data=[go.Bar(
-                x=["Autonomous Actions", "Human Escalations", "Alerts Sent"],
-                y=[autonomous, escalated, warning + critical],
-                marker_color=['#17a2b8', '#ffc107', '#6c757d']
+                x=list(action_counts.keys()),
+                y=list(action_counts.values()),
+                marker_color=['#28a745', '#ffc107', '#dc3545', '#17a2b8']
             )])
             fig.update_layout(title="Action Distribution", height=300)
             st.plotly_chart(fig, use_container_width=True)
