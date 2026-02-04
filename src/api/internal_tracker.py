@@ -5,6 +5,7 @@ Simulates the internal tracking system that stores target spend data
 for campaigns. In production, this would query a database or data warehouse.
 """
 
+import random
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 from src.models.spend import Platform, DataSource, SpendRecord
@@ -184,6 +185,64 @@ class MockInternalTracker:
         """
         for campaign_id, target_spend in targets.items():
             self.set_target(campaign_id, target_spend)
+
+    def sync_from_platform(self, platform_api, dirty_ratio: float = 0.15, seed: Optional[int] = None):
+        """
+        Populate tracker targets from platform API campaign data.
+
+        Simulates a real-world scenario where the internal tracker and platform
+        API share the same campaign catalog. A configurable dirty_ratio introduces
+        mismatches (wrong name or metadata) for a subset of campaigns, causing
+        low confidence scores and human escalation — demonstrating safety guardrails.
+
+        Args:
+            platform_api: MockPlatformAPI instance to sync from
+            dirty_ratio: Fraction of campaigns with intentional mismatches (default 0.15)
+            seed: Optional random seed for reproducibility of dirty selection
+        """
+        if seed is not None:
+            rng = random.Random(seed)
+        else:
+            rng = random.Random()
+
+        for campaign in platform_api.campaigns:
+            campaign_id = campaign["campaign_id"]
+            is_dirty = rng.random() < dirty_ratio
+
+            if is_dirty:
+                # Introduce mismatches to simulate data quality issues
+                dirty_name = rng.choice([
+                    f"Unknown_Campaign_{campaign_id.split('_')[-1]}",
+                    f"Legacy_Import_{rng.randint(1000, 9999)}",
+                    f"Unmatched_{campaign['metadata']['platform']}_{rng.randint(100, 999)}",
+                ])
+                dirty_metadata = {
+                    "market": rng.choice(["LATAM", "MEA", "CIS"]),
+                    "product": rng.choice(["LEGO_Duplo", "LEGO_Ninjago", "LEGO_Creator"]),
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-03-31",
+                }
+                self.target_data[campaign_id] = {
+                    "target_spend": campaign["target"],
+                    "campaign_name": dirty_name,
+                    "metadata": dirty_metadata,
+                    "platform": campaign["metadata"]["platform"],
+                    "hours_old": 12,
+                }
+            else:
+                # Clean sync: same name (with optional minor variation) and metadata
+                name = campaign["campaign_name"]
+                if rng.random() < 0.3:
+                    # Minor variation: swap underscores/spaces or change case
+                    name = name.replace("_", " ") if "_" in name else name.replace(" ", "_")
+
+                self.target_data[campaign_id] = {
+                    "target_spend": campaign["target"],
+                    "campaign_name": name,
+                    "metadata": dict(campaign["metadata"]),
+                    "platform": campaign["metadata"]["platform"],
+                    "hours_old": rng.uniform(6, 18),
+                }
 
     def get_all_campaign_ids(self) -> list:
         """

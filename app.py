@@ -155,6 +155,7 @@ def run_agent(platform, num_campaigns, seed, confidence_threshold, healthy_thres
         # Create components
         platform_api = MockPlatformAPI(platform, num_campaigns=num_campaigns, seed=seed)
         internal_tracker = MockInternalTracker()
+        internal_tracker.sync_from_platform(platform_api, dirty_ratio=0.15, seed=seed)
         audit_logger = AuditLogger(log_file="streamlit_audit.jsonl")
 
         # Create analyzer with custom thresholds
