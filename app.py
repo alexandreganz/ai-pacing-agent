@@ -221,6 +221,16 @@ def run_agent(platform, num_campaigns, seed, confidence_threshold, healthy_thres
         else:
             action_taken = "autonomous_halt_executed"
 
+        # Generate score explanations
+        score_explanations = scorer.explain_confidence(
+            tracker_name=target.campaign_name,
+            api_name=actual.campaign_name,
+            tracker_metadata=target.metadata,
+            api_metadata=actual.metadata,
+            actual_timestamp=actual.timestamp,
+            scores=confidence_scores
+        )
+
         # Create alert
         from src.models.spend import PacingAlert
         alert = PacingAlert(
@@ -243,6 +253,7 @@ def run_agent(platform, num_campaigns, seed, confidence_threshold, healthy_thres
                 "api_name": actual.campaign_name,
                 "tracker_metadata": target.metadata,
                 "api_metadata": actual.metadata,
+                "score_explanations": score_explanations,
             }
         )
 
@@ -539,6 +550,45 @@ def main():
             st.metric("Name Similarity (30%)", f"{name_score:.0%}")
         with score_col3:
             st.metric("Data Freshness (20%)", f"{fresh_score:.0%}")
+
+        # Score explanations
+        explanations = meta.get("score_explanations", {})
+        if explanations:
+            meta_expl = explanations.get("metadata", {})
+            name_expl = explanations.get("name_similarity", {})
+            fresh_expl = explanations.get("data_freshness", {})
+
+            expl_col1, expl_col2, expl_col3 = st.columns(3)
+            with expl_col1:
+                with st.expander("Why this score?"):
+                    st.markdown(f"**{meta_expl.get('summary', 'N/A')}**")
+                    mismatched = meta_expl.get("mismatched_fields", [])
+                    if mismatched:
+                        st.markdown("Mismatched fields:")
+                        for mf in mismatched:
+                            st.markdown(
+                                f"- `{mf['field']}`: API = `{mf['api_value']}` "
+                                f"vs Tracker = `{mf['tracker_value']}`"
+                            )
+                    else:
+                        st.markdown("All fields match.")
+            with expl_col2:
+                with st.expander("Why this score?"):
+                    st.markdown(f"**{name_expl.get('summary', 'N/A')}**")
+                    if name_expl.get("edit_distance", 0) > 0:
+                        st.markdown(
+                            f"- Tracker name: {name_expl.get('tracker_length', 0)} chars\n"
+                            f"- API name: {name_expl.get('api_length', 0)} chars\n"
+                            f"- Edit distance: {name_expl.get('edit_distance', 0)}"
+                        )
+            with expl_col3:
+                with st.expander("Why this score?"):
+                    st.markdown(f"**{fresh_expl.get('summary', 'N/A')}**")
+                    st.markdown(
+                        f"- Last updated: {fresh_expl.get('last_updated', 'N/A')}\n"
+                        f"- Data age: {fresh_expl.get('hours_old', 'N/A')}h\n"
+                        f"- Tier: {fresh_expl.get('tier_label', 'N/A')} ({fresh_expl.get('tier_range', '')})"
+                    )
 
         if selected_alert.action_taken == "escalated_to_human":
             st.warning("⚠️ This campaign was escalated to human review due to low confidence.")

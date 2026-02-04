@@ -234,6 +234,119 @@ class ConfidenceScorer:
         """
         return confidence_score >= threshold
 
+    def explain_confidence(
+        self,
+        tracker_name: str,
+        api_name: str,
+        tracker_metadata: Dict[str, str],
+        api_metadata: Dict[str, str],
+        actual_timestamp: datetime,
+        scores: Dict[str, float]
+    ) -> Dict[str, dict]:
+        """
+        Generate human-readable explanations for each confidence component.
+
+        Args:
+            tracker_name: Campaign name from internal tracker
+            api_name: Campaign name from platform API
+            tracker_metadata: Metadata dict from tracker
+            api_metadata: Metadata dict from API
+            actual_timestamp: Timestamp of actual spend data
+            scores: Dictionary with component scores from calculate_confidence()
+
+        Returns:
+            Dictionary with explanation details for each component:
+            - metadata: matched/mismatched fields breakdown
+            - name_similarity: edit distance and character counts
+            - data_freshness: data age, tier label, and timestamp
+        """
+        # --- Metadata explanation ---
+        matched_fields = []
+        mismatched_fields = []
+        for field in self.required_fields:
+            tracker_val = tracker_metadata.get(field)
+            api_val = api_metadata.get(field)
+            if (
+                tracker_val is not None
+                and api_val is not None
+                and str(tracker_val).lower() == str(api_val).lower()
+            ):
+                matched_fields.append(field)
+            else:
+                mismatched_fields.append({
+                    "field": field,
+                    "tracker_value": str(tracker_val) if tracker_val is not None else "missing",
+                    "api_value": str(api_val) if api_val is not None else "missing",
+                })
+
+        metadata_explanation = {
+            "score": scores["metadata_match_score"],
+            "matched_count": len(matched_fields),
+            "total_count": len(self.required_fields),
+            "matched_fields": matched_fields,
+            "mismatched_fields": mismatched_fields,
+            "summary": (
+                f"{len(matched_fields)} of {len(self.required_fields)} fields match"
+                if self.required_fields
+                else "No fields to check"
+            ),
+        }
+
+        # --- Name similarity explanation ---
+        tracker_norm = (tracker_name or "").lower().strip()
+        api_norm = (api_name or "").lower().strip()
+        if tracker_norm and api_norm:
+            edit_dist = levenshtein_distance(tracker_norm, api_norm)
+            max_len = max(len(tracker_norm), len(api_norm))
+        else:
+            edit_dist = 0
+            max_len = 0
+
+        name_explanation = {
+            "score": scores["name_similarity"],
+            "edit_distance": edit_dist,
+            "tracker_length": len(tracker_norm),
+            "api_length": len(api_norm),
+            "summary": (
+                "Identical names"
+                if edit_dist == 0 and max_len > 0
+                else f"Edit distance: {edit_dist} character(s) across {max_len}-char names"
+            ),
+        }
+
+        # --- Data freshness explanation ---
+        hours_old = (datetime.utcnow() - actual_timestamp).total_seconds() / 3600
+
+        if hours_old < 4:
+            tier_label = "Fresh"
+            tier_range = "< 4 hours"
+        elif hours_old < 12:
+            tier_label = "Good"
+            tier_range = "4–12 hours"
+        elif hours_old < 24:
+            tier_label = "Acceptable"
+            tier_range = "12–24 hours"
+        else:
+            tier_label = "Stale"
+            tier_range = "> 24 hours"
+
+        freshness_explanation = {
+            "score": scores["data_freshness_score"],
+            "hours_old": round(hours_old, 1),
+            "tier_label": tier_label,
+            "tier_range": tier_range,
+            "last_updated": actual_timestamp.strftime("%Y-%m-%d %H:%M UTC"),
+            "summary": (
+                f"Data is {hours_old:.1f}h old — {tier_label} ({tier_range})"
+            ),
+        }
+
+        return {
+            "metadata": metadata_explanation,
+            "name_similarity": name_explanation,
+            "data_freshness": freshness_explanation,
+        }
+
     def diagnose_low_confidence(
         self,
         scores: Dict[str, float],
